@@ -49,9 +49,15 @@ int main(int argc, char *argv[]) {
         sprintf(request, "%s %d %d", filename, start, end);
         write(la_socket, request, strlen(request) + 1);
 
+        // Après avoir envoyé la commande "quit"
         if (strcmp(filename, "quit") == 0) {
-            break; // Quitte si la commande 'quit' est envoyée
+           char server_response[1024];
+            memset(server_response, 0, sizeof(server_response));
+            read(la_socket, server_response, sizeof(server_response) - 1);
+            printf("Réponse du serveur: %s\n", server_response);
+            break; // Quitter la boucle
         }
+
 
         // Réinitialisation du buffer de réponse
         memset(response, 0, sizeof(response)); 

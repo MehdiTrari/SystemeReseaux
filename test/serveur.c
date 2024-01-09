@@ -27,10 +27,14 @@ void *gerer_client(void *client_socket) {
         }
 
         buffer[n] = '\0';
+
+        // Dans la fonction gerer_client
         if (strcmp(buffer, "quit") == 0) {
             printf("Signal 'quit' reçu. Déconnexion du client.\n");
+           write(la_socket, "QUIT_ACK", strlen("QUIT_ACK"));
             break;
         }
+
 
         printf("Requête reçue : %s\n", buffer);
 
