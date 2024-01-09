@@ -5,70 +5,103 @@
 #include <netinet/in.h>
 #include <pthread.h>
 
+volatile int server_running = 1;
+
 void *gerer_client(void *client_socket) {
     int la_socket = *(int*)client_socket;
     free(client_socket);
 
+    printf("Client connecté. En attente de requêtes...\n");
+
     char buffer[1024];
     int n;
 
-    // Boucle pour traiter plusieurs requêtes du même client
-    while(1) {
-        n = read(la_socket, buffer, 1023);
+    while (server_running) {
+        printf("En attente d'une requête...\n");
+        memset(buffer, 0, sizeof(buffer));
+
+        n = read(la_socket, buffer, sizeof(buffer) - 1);
         if (n <= 0) {
-            // Si la lecture échoue ou si le client ferme la connexion
+            printf("Erreur de lecture ou client déconnecté.\n");
             break;
         }
 
         buffer[n] = '\0';
-
-        // Vérifier un signal de fin de connexion, par exemple "quit"
         if (strcmp(buffer, "quit") == 0) {
+            printf("Signal 'quit' reçu. Déconnexion du client.\n");
             break;
         }
 
-        // Analyser la requête
+        printf("Requête reçue : %s\n", buffer);
+
         char filename[256];
         int start_line, end_line;
         sscanf(buffer, "%255s %d %d", filename, &start_line, &end_line);
 
-        // Ouvrir et traiter le fichier
         FILE *file = fopen(filename, "r");
         if (file == NULL) {
-            write(la_socket, "Erreur lors de l'ouverture du fichier", 36);
+            printf("Erreur lors de l'ouverture du fichier %s\n", filename);
+            write(la_socket, "Erreur lors de l'ouverture du fichier\n", 37);
+            continue;
         } else {
-            int current_line = 1;
-            int ch;
-            size_t index = 0;
-            while ((ch = fgetc(file)) != EOF) {
-                // Ajouter le caractère lu au buffer s'il ne s'agit pas d'un saut de ligne
-                if (ch != '\n') {
-                    buffer[index++] = ch;
-                }
+            printf("Fichier %s ouvert avec succès\n", filename);
+        }
 
-                // Vérifier si nous avons atteint la fin d'une ligne ou du fichier
-                if (ch == '\n' || index == sizeof(buffer) - 1 || feof(file)) {
-                    buffer[index] = '\0'; // Terminer la chaîne
-                    if (current_line >= start_line && current_line <= end_line) {
-                        write(la_socket, buffer, index);
-                        write(la_socket, "\n", 1); // S'assurer que la fin de la ligne est transmise
-                    }
-                    index = 0; // Réinitialiser l'index pour la prochaine ligne
-                    if (ch == '\n') {
-                        current_line++;
-                    }
-                }
+        // Compter le nombre total de lignes dans le fichier
+        int total_lines = 0;
+        char c;
+        while ((c = fgetc(file)) != EOF) {
+            if (c == '\n') {
+                total_lines++;
+            }
+        }
+        rewind(file); // Remettre le curseur au début du fichier
+
+        if (start_line > total_lines || end_line < start_line) {
+            char *error_msg = "Requête invalide : ligne de début ou de fin non valide.\n";
+            write(la_socket, error_msg, strlen(error_msg));
+            fclose(file);
+            continue;
+        }
+
+        int current_line = 1;
+        int ch;
+        size_t index = 0;
+        while ((ch = fgetc(file)) != EOF) {
+            if (ch != '\n') {
+                buffer[index++] = ch;
             }
 
-        // Fermer le fichier après avoir traité la requête
+            if (ch == '\n' || index == sizeof(buffer) - 1 || feof(file)) {
+                buffer[index] = '\0';
+                if (current_line >= start_line && current_line <= end_line) {
+                    write(la_socket, buffer, strlen(buffer));
+                    write(la_socket, "\n", 1);
+                }
+                index = 0;
+                if (ch == '\n') {
+                    current_line++;
+                }
+            }
+        }
+
+        if (current_line <= end_line) {
+            char *end_error_msg = "Requête invalide : fin de fichier atteinte avant 'end_line'.\n";
+            write(la_socket, end_error_msg, strlen(end_error_msg));
+        } else {
+            // Envoi du marqueur de fin de réponse
+            write(la_socket, "FIN_REPONSE", strlen("FIN_REPONSE"));
+        }
+
         if (file != NULL) {
             fclose(file);
         }
     }
-    }
     close(la_socket);
+    printf("Connexion avec le client terminée.\n");
     return NULL;
 }
+
 
 int main() {
     int server_socket, client_socket;
@@ -99,7 +132,8 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    while(1) {
+    printf("Serveur démarré. En attente de connexions...\n");
+    while(server_running) {
         client_addr_size = sizeof(client_addr);
         client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_size);
         if(client_socket < 0) {
@@ -118,5 +152,6 @@ int main() {
     }
 
     close(server_socket);
+    printf("serveur stoppé.\n");
     return 0;
 }
